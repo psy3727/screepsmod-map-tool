@@ -1114,3 +1114,28 @@ async function fixAll() {
   console.log(`All rooms fixed. Run save to apply.`)
   alert(`All rooms fixed. Run save to apply.`)
 }
+
+function fixBugAndDepositType(confirm) {
+  const depositTypes = ['silicon', 'metal', 'biomass', 'mist']
+  for (var room of terrain) {
+      let [, hor, horx, ver, very] = room.name.match(/^(\w)(\d+)(\w)(\d+)$/)
+      if (horx % 10 == 0 || very % 10 == 0) {
+          // console.log(room.name, room.bus)
+          if (room.bus !== true) {
+              console.log(room.name, room.bus, " -> true")
+              if (confirm === true) {
+                room.remote = false
+                room.bus = true
+              }
+          }
+          if (!room.depositType) {
+              let dt = depositTypes[(horx + very) % 4]
+              console.log(room.name, room.depositType, " -> ", dt)
+              if (confirm === true) {
+                room.remote = false
+                room.depositType = dt
+              }
+          }
+      } else if (room.bus === true || room.depositType !== undefined) console.log("-- ", room.name, room.bus, room.depositType)
+  }
+}
