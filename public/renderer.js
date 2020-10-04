@@ -176,10 +176,6 @@ const tools = {
   ]
 }
 
-function logMapClick(room, x, y) {
-  console.log(room, x, y)
-}
-
 function getRoomFromName(room) { return terrain.find(r => r.room === room) }
 
 function getRoomFromXY(x, y) { return terrain.find(r => r.x == x && r.y == y) }
@@ -1115,7 +1111,61 @@ async function fixAll() {
   alert(`All rooms fixed. Run save to apply.`)
 }
 
-function fixBugAndDepositType(confirm) {
+function logMapClick(room, x, y) {
+  console.log(room, x, y)
+  console.log(getRoomFromName(room))
+}
+
+function makeNoviceSector(roomInSector, openTime, decayTime) {
+  //default to opening in 1 minute
+  if (openTime === undefined) { openTime = Date.now() + (1 * 1000 * 60) }
+  //default to decaying in 7 days
+  if (decayTime === undefined) {
+    decayTime = new Date()
+    decayTime.setDate(decayTime.getDate() + 7)
+    decayTime = decayTime.getTime()
+  }
+
+  let { start, end } = getSectorBounds(roomInSector, "all")
+
+  for (let x = start.x; x < end.x; x++) {
+    for (let y = start.y; y < end.y; y++) {
+
+      let room = terrain.find(r => r.x == x && r.y == y)
+      room.remote = false
+      room.status = 'normal'
+
+      let [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
+
+      if (horx % 10 == 0 || very % 10 == 0) {
+        room.bus = true
+        if (x == start.x && y == start.y) {
+          makeRespawnSectorWall(room, 'topLeft', decayTime)
+        } else if (x == start.x && y == (start.y + 10)) {
+          makeRespawnSectorWall(room, 'bottomLeft', decayTime)
+        } else if (y == start.y && x == (start.x + 10)) {
+          makeRespawnSectorWall(room, 'topRight', decayTime)
+        } else if (y == (start.y + 10) && x == (start.x + 10)) {
+          makeRespawnSectorWall(room, 'bottomRight', decayTime)
+        } else if (x == start.x && y > start.y && y < (start.y + 10)) {
+          makeRespawnSectorWall(room, 'left', decayTime)
+        } else if (x == (start.x + 10) && y > start.y && y < (start.y + 10)) {
+          makeRespawnSectorWall(room, 'right', decayTime)
+        } else if ((y == start.y && x > start.x && x < (start.x + 10))) {
+          makeRespawnSectorWall(room, 'top', decayTime)
+        } else if ((y == (start.y + 10) && x > start.x && x < (start.x + 10))) {
+          makeRespawnSectorWall(room, 'bottom', decayTime)
+        }
+      } else {
+        room.novice = decayTime
+        room.openTime = openTime
+      }
+
+    }
+  }
+}
+
+function fixBusAndDepositType(confirm) {
   const depositTypes = ['silicon', 'metal', 'biomass', 'mist']
   for (var room of terrain) {
       let [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
@@ -1136,6 +1186,254 @@ function fixBugAndDepositType(confirm) {
                 room.depositType = dt
               }
           }
-      } else if (room.bus === true || room.depositType !== undefined) console.log("-- ", room.room, room.bus, room.depositType)
+      //log rooms that have bus or depositType set that shouldn't
+      } else if (room.bus === true || !(room.depositType === undefined || room.depositType === null)) console.log("-- ", room.room, room.bus, room.depositType)
+  }
+}
+
+function getSourceDensitySector(roomInSector) {
+  let { start, end } = getSectorBounds(roomInSector, "none");
+
+  let numOneSourceRoomTotal = 0;
+  let numTwoSourceRoomTotal = 0;
+  let roomTotal = 0;
+  for (let x = start.x; x < end.x; x++) {
+      for (let y = start.y; y < end.y; y++) {
+  
+          const room = terrain.find(r => r.x == x && r.y == y)
+          const [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
+  
+          const horxmod = horx % 10;
+          const verymod = very % 10;
+
+          const isSkRoom = !(horxmod == 5 && verymod == 5) &&
+          ((horxmod >= 4) && (horxmod <= 6)) &&
+          ((verymod >= 4) && (verymod <= 6));
+          const isSkCenterRoom = horxmod == 5 && verymod == 5;
+          const isBusRoom = horxmod == 0 || verymod == 0;
+
+          if (isSkRoom || isSkCenterRoom || isBusRoom) continue;
+
+          let numSource = 0;
+          for (let o = 0; o < room.objects.length; o++) {
+              const object = room.objects[o];
+              if (object.type == "source") numSource++;
+          }
+
+          if (numSource == 1) numOneSourceRoomTotal++;
+          if (numSource == 2) numTwoSourceRoomTotal++;
+
+          roomTotal++;
+      }
+  }
+
+  console.log("OneSource = " + numOneSourceRoomTotal + "/" + roomTotal + " " + (Math.round(numOneSourceRoomTotal/roomTotal*100)));
+  console.log("TwoSource = " + numTwoSourceRoomTotal + "/" + roomTotal + " " + (Math.round(numTwoSourceRoomTotal/roomTotal*100)));
+  return [roomTotal, numOneSourceRoomTotal, numTwoSourceRoomTotal];
+}
+
+function getSourcesInRoom(room) {
+  let sources = []
+  for (let i = 0; i < room.objects.length; i++) {
+      if (room.objects[i].type == "source") {
+          sources.push(room.objects[i]);
+      }
+  }
+  return sources;
+}
+
+function removeSourceFromRoom(room) {
+  for (let i = 0; i < room.objects.length; i++) {
+      if (room.objects[i].type == "source") {
+          room.objects.splice(i, 1);
+          room.remote = false;
+          return;
+      }
+  }
+}
+
+function getRoomTerrain2DArray(room) {
+  let twoDTerrain = [];
+  let terrainIdx = 0;
+  for (let y = 0; y <= 49; y++) {
+      if (twoDTerrain[y] == undefined) twoDTerrain.push([]);
+      for (let x = 0; x <= 49; x++) {
+          twoDTerrain[y].push(parseInt(room.terrain[terrainIdx]));
+          terrainIdx++;
+      }
+  }
+  return twoDTerrain;
+}
+
+function addSourceToRoom(room) {
+  const twoDTerrain = getRoomTerrain2DArray(room);
+  const sources = getSourcesInRoom(room);
+
+  let tries = 0;
+  let newX, newY;
+  do {
+      //randomly pick a spot in the room
+      let x = Math.floor(Math.random() * 45) + 2;
+      let y = Math.floor(Math.random() * 45) + 2;
+
+      //try again if it's not a wall
+      if (twoDTerrain[y][x] !== C.TERRAIN_MASK_WALL) {
+          tries++;
+          continue;
+      }
+      
+      //is there at last one non-wall spot around the spot
+      let reachable = false;
+      for (var dx = -1; dx <= 1; dx++) {
+          for (var dy = -1; dy <= 1; dy++) {
+              if (x + dx < 0 || y + dy < 0 || x + dx > 49 || y + dy > 49) { continue; }
+              if (twoDTerrain[y + dy][x + dx] !== C.TERRAIN_MASK_WALL) {
+                  reachable = true
+                  break;
+              }
+          }
+          if (reachable) break;
+      }
+      if  (!reachable) {
+          tries++;
+          continue;
+      }
+
+      //try again if it's the same spot as an existing source
+      let sameAsExisting = false;
+      for (var source of sources) {
+          if (source.x == x && source.y == y) {
+              sameAsExisting = true;
+              break;
+          }
+      }
+      if (sameAsExisting) {
+          tries++;
+          continue;
+      }
+
+      newX = x;
+      newY = y;
+      tries++;
+  } while (newX == undefined && tries < 1000);
+
+  room.objects.push({
+      room: room.room,
+      type: 'source',
+      x: newX,
+      y: newY,
+      'energy': C.SOURCE_ENERGY_NEUTRAL_CAPACITY,
+      'energyCapacity': C.SOURCE_ENERGY_NEUTRAL_CAPACITY,
+      'ticksToRegeneration': C.ENERGY_REGEN_TIME
+  });
+  room.remote = false;
+
+  return [room.room, newX, newY];
+}
+
+function shuffleArray(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * i);
+      const temp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = temp;
+  }
+}
+
+function changeOneSourceDensitySector(roomInSector, minPercent) {
+  let roomTotal, numOneSourceRoomTotal, numTwoSourceRoomTotal;
+  [roomTotal, numOneSourceRoomTotal, numTwoSourceRoomTotal] = getSourceDensitySector(roomInSector);
+  const neededOneSourceRooms = Math.ceil((roomTotal * minPercent) / 100);
+  const oneSourceRoomstoAdd = neededOneSourceRooms - numOneSourceRoomTotal;
+  
+  if (oneSourceRoomstoAdd <= 0) return;
+  
+  let roomArr = [];
+  const { start, end } = getSectorBounds(roomInSector, "none");
+  for (var x = start.x; x < end.x; x++) {
+      for (var y = start.y; y < end.y; y++) {
+          const room = terrain.find(r => r.x == x && r.y == y)
+          const [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
+  
+          const horxmod = horx % 10;
+          const verymod = very % 10;
+
+          const isSkRoom = !(horxmod == 5 && verymod == 5) &&
+          ((horxmod >= 4) && (horxmod <= 6)) &&
+          ((verymod >= 4) && (verymod <= 6));
+          const isSkCenterRoom = horxmod == 5 && verymod == 5;
+          const isBusRoom = horxmod == 0 || verymod == 0;
+
+          if (isSkRoom || isSkCenterRoom || isBusRoom) continue;
+
+          roomArr.push(room.room);
+      }
+  }
+
+  shuffleArray(roomArr);
+
+  let roomsModified = 0;
+  for (var roomName of roomArr) {
+      const room = getRoomFromName(roomName);
+      const sources = getSourcesInRoom(room);
+
+      if (sources.length === 2) {
+          console.log("removing source from room " + room.room);
+          removeSourceFromRoom(room);
+          roomsModified++;
+      }
+
+      if (roomsModified === oneSourceRoomstoAdd) {
+          break;
+      }
+  }
+}
+
+function changeTwoSourceDensitySector(roomInSector, minPercent) {
+  let roomTotal, numOneSourceRoomTotal, numTwoSourceRoomTotal;
+  [roomTotal, numOneSourceRoomTotal, numTwoSourceRoomTotal] = getSourceDensitySector(roomInSector);
+  const neededTwoSourceRooms = Math.ceil((roomTotal * minPercent) / 100);
+  const twoSourceRoomstoAdd = neededTwoSourceRooms - numTwoSourceRoomTotal;
+  
+  if (twoSourceRoomstoAdd <= 0) return;
+  
+  let roomArr = [];
+  const { start, end } = getSectorBounds(roomInSector, "none");
+  for (var x = start.x; x < end.x; x++) {
+      for (var y = start.y; y < end.y; y++) {
+          const room = terrain.find(r => r.x == x && r.y == y)
+          const [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
+  
+          const horxmod = horx % 10;
+          const verymod = very % 10;
+
+          const isSkRoom = !(horxmod == 5 && verymod == 5) &&
+          ((horxmod >= 4) && (horxmod <= 6)) &&
+          ((verymod >= 4) && (verymod <= 6));
+          const isSkCenterRoom = horxmod == 5 && verymod == 5;
+          const isBusRoom = horxmod == 0 || verymod == 0;
+
+          if (isSkRoom || isSkCenterRoom || isBusRoom) continue;
+
+          roomArr.push(room.room);
+      }
+  }
+
+  shuffleArray(roomArr);
+
+  let roomsModified = 0;
+  for (var roomName of roomArr) {
+      const room = getRoomFromName(roomName);
+      const sources = getSourcesInRoom(room);
+
+      if (sources.length === 1) {
+          console.log("adding source to room " + room.room);
+          addSourceToRoom(room);
+          roomsModified++;
+      }
+
+      if (roomsModified === twoSourceRoomstoAdd) {
+          break;
+      }
   }
 }
