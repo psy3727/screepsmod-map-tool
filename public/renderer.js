@@ -773,7 +773,7 @@ function makeRespawnSector(roomInSector, openTime, decayTime) {
       room.remote = false
       room.status = 'normal'
 
-      let [, hor, horx, ver, very] = room.name.match(/^(\w)(\d+)(\w)(\d+)$/)
+      let [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
 
       if (horx % 10 == 0 || very % 10 == 0) {
         room.bus = true
@@ -1118,11 +1118,11 @@ async function fixAll() {
 function fixBugAndDepositType(confirm) {
   const depositTypes = ['silicon', 'metal', 'biomass', 'mist']
   for (var room of terrain) {
-      let [, hor, horx, ver, very] = room.name.match(/^(\w)(\d+)(\w)(\d+)$/)
+      let [, hor, horx, ver, very] = room.room.match(/^(\w)(\d+)(\w)(\d+)$/)
       if (horx % 10 == 0 || very % 10 == 0) {
-          // console.log(room.name, room.bus)
+          // console.log(room.room, room.bus)
           if (room.bus !== true) {
-              console.log(room.name, room.bus, " -> true")
+              console.log(room.room, room.bus, " -> true")
               if (confirm === true) {
                 room.remote = false
                 room.bus = true
@@ -1130,12 +1130,12 @@ function fixBugAndDepositType(confirm) {
           }
           if (!room.depositType) {
               let dt = depositTypes[(horx + very) % 4]
-              console.log(room.name, room.depositType, " -> ", dt)
+              console.log(room.room, room.depositType, " -> ", dt)
               if (confirm === true) {
                 room.remote = false
                 room.depositType = dt
               }
           }
-      } else if (room.bus === true || room.depositType !== undefined) console.log("-- ", room.name, room.bus, room.depositType)
+      } else if (room.bus === true || room.depositType !== undefined) console.log("-- ", room.room, room.bus, room.depositType)
   }
 }
